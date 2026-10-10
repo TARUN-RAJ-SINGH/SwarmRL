@@ -1,13 +1,13 @@
 """
-SwarmRL -- Day 8: RLlib Training Loop & MAPPO Setup
+SwarmRL -- Day 9: TensorBoard Integration & Hyperparameter Tuning
 
-Registers the PettingZoo SwarmEnv with Ray RLlib and configures the
-Multi-Agent PPO (MAPPO) algorithm for decentralized training with a
-centralized critic (CTDE).
+Registers the PettingZoo SwarmEnv with Ray RLlib, configures MAPPO,
+adds TensorBoard logging, and tunes hyperparameters for better coverage.
 """
 
 import os
 import sys
+import argparse
 import ray
 from ray import tune
 from ray.rllib.algorithms.ppo import PPOConfig
@@ -24,16 +24,11 @@ def env_creator(env_config):
     """Creates and returns the PettingZoo SwarmEnv."""
     return SwarmEnv()
 
-def get_algorithm_config():
+def get_algorithm_config(log_dir):
     """
-    Configures MAPPO (Multi-Agent PPO).
-    In RLlib, PPO with multi-agent setup where agents share policies
-    effectively acts as MAPPO.
+    Configures MAPPO (Multi-Agent PPO) with TensorBoard logging.
     """
     env = SwarmEnv()
-    
-    # We use a single shared policy for all drones (homogeneous swarm)
-    # This enables decentralized execution but centralized learning.
     policy_id = "shared_policy"
     
     obs_space = env.observation_space(env.possible_agents[0])
@@ -45,17 +40,17 @@ def get_algorithm_config():
         .framework("torch")
         .env_runners(
             num_env_runners=2,            # Number of parallel environments
-            rollout_fragment_length=200,  # Steps per worker before training
+            rollout_fragment_length=500,  # Longer fragments for better advantage estimation
         )
         .training(
-            train_batch_size=4000,
-            minibatch_size=512,
+            train_batch_size=8000,        # Larger batch size for stable multi-agent gradients
+            minibatch_size=1024,
             num_epochs=10,
-            lr=5e-5,
+            lr=1e-4,                      # Slightly higher LR for initial exploration
             clip_param=0.2,
-            vf_clip_param=10.0,
+            vf_clip_param=20.0,           # Allow larger value function updates
             model={
-                "fcnet_hiddens": [256, 256],
+                "fcnet_hiddens": [256, 256, 256], # Deeper network for spatial reasoning
                 "fcnet_activation": "relu",
             }
         )
@@ -66,13 +61,19 @@ def get_algorithm_config():
             # Map all drone agents to the same shared policy
             policy_mapping_fn=lambda agent_id, *args, **kwargs: policy_id,
         )
-        .resources(num_gpus=0) # Set to 1 if using GPU
         .debugging(log_level="ERROR")
+        .resources(num_gpus=0)
     )
+    
+    # Configure TensorBoard logger directory
+    config.logger_config = {
+        "type": "tensorboard",
+        "logdir": log_dir,
+    }
     
     return config
 
-def main():
+def main(args):
     print("=" * 60)
     print("SwarmRL - RLlib MAPPO Training")
     print("=" * 60)
@@ -81,41 +82,43 @@ def main():
     ray.init(ignore_reinit_error=True)
     
     # Register the environment
-    # RLlib requires PettingZoo environments to be wrapped in PettingZooEnv (or ParallelPettingZooEnv)
     register_env("SwarmEnv", lambda config: ParallelPettingZooEnv(env_creator(config)))
     
-    # Get config
-    config = get_algorithm_config()
+    # Setup TensorBoard log directory
+    log_dir = os.path.abspath("training/logs/mappo_run")
+    os.makedirs(log_dir, exist_ok=True)
     
-    # Create the Algorithm instance
+    # Get config
+    config = get_algorithm_config(log_dir)
     algo = config.build_algo()
     
-    print("Starting training loop...")
+    print(f"TensorBoard logs will be saved to: {log_dir}")
+    print(f"Starting training loop for {args.iterations} iterations...")
     print("Metrics: (Iter) | Mean Reward | Min Reward | Max Reward")
     
-    # Train for a few iterations just to test the pipeline
-    num_iterations = 5
-    
-    for i in range(1, num_iterations + 1):
+    for i in range(1, args.iterations + 1):
         result = algo.train()
         
-        # RLlib accumulates rewards across agents in a multi-agent env, 
-        # but 'episode_reward_mean' is typically the sum of all agent rewards.
-        # We divide by num_drones to get per-drone average.
+        # Calculate per-drone rewards
         num_drones = WORLD_CONFIG["drones"]["num_drones"]
-        mean_reward = result.get('env_runners', {}).get('episode_reward_mean', result.get('episode_reward_mean', 0)) / num_drones
-        min_reward = result.get('env_runners', {}).get('episode_reward_min', result.get('episode_reward_min', 0)) / num_drones
-        max_reward = result.get('env_runners', {}).get('episode_reward_max', result.get('episode_reward_max', 0)) / num_drones
+        env_runners = result.get('env_runners', {})
+        mean_reward = env_runners.get('episode_reward_mean', result.get('episode_reward_mean', 0)) / num_drones
+        min_reward = env_runners.get('episode_reward_min', result.get('episode_reward_min', 0)) / num_drones
+        max_reward = env_runners.get('episode_reward_max', result.get('episode_reward_max', 0)) / num_drones
         
-        print(f"Iter {i:2d} | Mean: {mean_reward:8.2f} | Min: {min_reward:8.2f} | Max: {max_reward:8.2f}")
-    
-    # Save the model
-    checkpoint_dir = os.path.abspath("checkpoints/day8_mappo")
-    algo.save(checkpoint_dir)
-    print(f"\nModel saved to: {checkpoint_dir}")
-    
+        print(f"Iter {i:3d} | Mean: {mean_reward:8.2f} | Min: {min_reward:8.2f} | Max: {max_reward:8.2f}")
+        
+        # Save checkpoints periodically
+        if i % 10 == 0 or i == args.iterations:
+            checkpoint_dir = os.path.abspath(f"checkpoints/day9_mappo_iter_{i}")
+            algo.save(checkpoint_dir)
+            print(f"  -> Checkpoint saved at Iter {i}")
+            
     ray.shutdown()
     print("=" * 60)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="SwarmRL MAPPO Training")
+    parser.add_argument("--iterations", type=int, default=10, help="Number of training iterations")
+    args = parser.parse_args()
+    main(args)
