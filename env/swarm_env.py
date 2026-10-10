@@ -39,10 +39,10 @@ class SwarmEnv(ParallelEnv):
         self.current_step = 0
         
         # Reward configuration
-        self.reward_explore = 0.1     # per new cell explored
-        self.reward_collision = -5.0  # penalty per collision
-        self.reward_step = -0.01      # small penalty per step to encourage speed
-        self.reward_success = 100.0   # huge bonus for reaching target coverage
+        self.reward_explore = 0.5     # Increased: per new cell explored to strongly encourage movement
+        self.reward_collision = -2.0  # Decreased: penalty per collision to prevent fear-driven freezing
+        self.reward_step = -0.02      # Slightly higher penalty per step to encourage speed
+        self.reward_success = 100.0   # Huge bonus for reaching target coverage
 
     def observation_space(self, agent):
         return self.observation_spaces[agent]
