@@ -1,122 +1,256 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import React from 'react';
+import { useSimulation } from './hooks/useSimulation';
+import './App.css';
 
-function App() {
-  const [count, setCount] = useState(0)
+export function App() {
+  const {
+    connected,
+    simState,
+    worldConfig,
+    isRunning,
+    start,
+    pause,
+    step,
+    reset,
+    setPolicy,
+    setFps,
+  } = useSimulation();
+
+  const drones = simState.drones || [];
+  const coveragePercent = simState.coverage_pct || 0;
+  const aliveDrones = drones.filter((d) => d.alive).length;
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="mission-control">
+      {/* ── Top Navigation Bar ── */}
+      <header className="top-bar">
+        <div className="brand">
+          <div className="radar-icon">
+            <span className="radar-ring"></span>
+            <span className="radar-blip"></span>
+          </div>
+          <div className="brand-text">
+            <div className="brand-title">SwarmRL</div>
+            <div className="brand-subtitle">Autonomous Drone Swarm Telemetry</div>
+          </div>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
 
-      <div className="ticks"></div>
+        <div className="header-meta">
+          <div className={`status-pill ${connected ? 'connected' : 'disconnected'}`}>
+            <span className="status-dot"></span>
+            <span>{connected ? 'WS LIVE (8000)' : 'OFFLINE'}</span>
+          </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+          <div className={`sim-badge status-${simState.status}`}>
+            {simState.status.toUpperCase()}
+          </div>
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
+      </header>
+
+      {/* ── Top Metrics Strip ── */}
+      <section className="metrics-bar">
+        <div className="metric-card">
+          <div className="metric-label">GLOBAL COVERAGE</div>
+          <div className="metric-value">
+            <span className="accent-val">{coveragePercent.toFixed(1)}</span>
+            <span className="unit">%</span>
+          </div>
+          <div className="progress-track">
+            <div
+              className="progress-fill"
+              style={{ width: `${Math.min(coveragePercent, 100)}%` }}
+            ></div>
+          </div>
+          <div className="metric-sub">Target: 85.0%</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">ACTIVE SWARM</div>
+          <div className="metric-value">
+            <span className="accent-val">{aliveDrones}</span>
+            <span className="unit">/ {worldConfig?.num_drones || 10}</span>
+          </div>
+          <div className="swarm-dots">
+            {drones.map((d) => (
+              <span
+                key={d.id}
+                className={`drone-dot ${d.alive ? 'active' : 'inactive'}`}
+                title={`Drone ${d.id}: ${d.alive ? 'Online' : 'Lost'}`}
+              ></span>
+            ))}
+          </div>
+          <div className="metric-sub">Clustered Basecamp</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">SIMULATION STEP</div>
+          <div className="metric-value">
+            <span className="accent-val">{simState.step}</span>
+            <span className="unit">/ {simState.max_steps}</span>
+          </div>
+          <div className="progress-track">
+            <div
+              className="progress-fill step-fill"
+              style={{
+                width: `${Math.min((simState.step / simState.max_steps) * 100, 100)}%`,
+              }}
+            ></div>
+          </div>
+          <div className="metric-sub">{simState.fps} Hz Stream Rate</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-label">COLLISIONS</div>
+          <div className="metric-value">
+            <span className={`accent-val ${simState.total_collisions > 0 ? 'alert' : ''}`}>
+              {simState.total_collisions}
+            </span>
+          </div>
+          <div className="metric-sub">Penalties Active (-2.0)</div>
         </div>
       </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {/* ── Control Console Toolbar ── */}
+      <section className="toolbar">
+        <div className="control-group">
+          <button
+            id="btn-play-pause"
+            className={`btn-control ${isRunning ? 'btn-pause' : 'btn-play'}`}
+            onClick={isRunning ? pause : start}
+            disabled={!connected}
+          >
+            {isRunning ? '⏸ Pause Sim' : '▶ Start Swarm'}
+          </button>
+
+          <button
+            id="btn-step"
+            className="btn-control btn-secondary"
+            onClick={step}
+            disabled={!connected || isRunning}
+            title="Advance 1 simulation step"
+          >
+            ⏭ Step Forward
+          </button>
+
+          <button
+            id="btn-reset"
+            className="btn-control btn-secondary"
+            onClick={() => reset(42)}
+            disabled={!connected}
+            title="Reset swarm to basecamp"
+          >
+            ↺ Reset Swarm
+          </button>
+        </div>
+
+        <div className="control-group">
+          <label className="select-label">Policy Model:</label>
+          <div className="segmented-control">
+            {['trained', 'heuristic', 'random'].map((mode) => (
+              <button
+                key={mode}
+                className={`segment-btn ${simState.policy_mode === mode ? 'active' : ''}`}
+                onClick={() => setPolicy(mode)}
+                disabled={!connected}
+              >
+                {mode === 'trained' ? 'RL MAPPO' : mode === 'heuristic' ? 'APF Heuristic' : 'Random'}
+              </button>
+            ))}
+          </div>
+
+          <label className="select-label">Speed:</label>
+          <div className="segmented-control">
+            {[10, 20, 30, 60].map((rate) => (
+              <button
+                key={rate}
+                className={`segment-btn ${simState.fps === rate ? 'active' : ''}`}
+                onClick={() => setFps(rate)}
+                disabled={!connected}
+              >
+                {rate} FPS
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Main Workspace ── */}
+      <main className="workspace-grid">
+        {/* Viewport Card */}
+        <div className="viewport-container">
+          <div className="panel-header">
+            <span>3D TACTICAL DISASTER ZONE (100m × 100m × 50m)</span>
+            <span className="panel-tag">Day 12 Viewport Mount Ready</span>
+          </div>
+
+          <div className="viewport-stage">
+            <div className="grid-overlay"></div>
+            <div className="radar-sweep"></div>
+
+            <div className="viewport-center-info">
+              <div className="viewport-icon">🛸</div>
+              <h3>3D Three.js Viewport Integration</h3>
+              <p>
+                WebSocket telemetry streaming active at {simState.fps} Hz.
+                Positions, velocities, LiDAR rays, and collision meshes ready for Day 12 Canvas mounting.
+              </p>
+              <div className="specs-list">
+                <div className="spec-badge">Bounds: 100×100×50m</div>
+                <div className="spec-badge">Obstacles: 5 Built</div>
+                <div className="spec-badge">Voxel Grid: 62,500 Cells</div>
+                <div className="spec-badge">LiDAR: 10 Rays/Drone</div>
+              </div>
+            </div>
+
+            <div className="viewport-coords-overlay">
+              <div>ORIGIN: [0, 0, 0]</div>
+              <div>EXTENT: [100, 100, 50]</div>
+              <div>CLUSTERING: Basecamp [10, 10, 5]</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Live Swarm Telemetry Panel */}
+        <div className="telemetry-panel">
+          <div className="panel-header">
+            <span>LIVE SWARM TELEMETRY</span>
+            <span className="panel-count">{drones.length} DRONES</span>
+          </div>
+
+          <div className="telemetry-table-wrap">
+            <table className="telemetry-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Position [x, y, z]</th>
+                  <th>Velocity [vx, vy, vz]</th>
+                  <th>Speed</th>
+                  <th>Voxels</th>
+                </tr>
+              </thead>
+              <tbody>
+                {drones.map((d) => (
+                  <tr key={d.id} className={d.alive ? '' : 'dead-row'}>
+                    <td className="drone-id-col">
+                      <span className="agent-badge">#{d.id}</span>
+                    </td>
+                    <td className="coord-col">
+                      [{d.position.map((v) => v.toFixed(1)).join(', ')}]
+                    </td>
+                    <td className="coord-col">
+                      [{d.velocity.map((v) => v.toFixed(1)).join(', ')}]
+                    </td>
+                    <td>{d.speed.toFixed(2)} m/s</td>
+                    <td className="cells-col">+{d.cells_explored}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
 }
 
-export default App
+export default App;

@@ -1,26 +1,77 @@
 """
-SwarmRL — FastAPI Backend Server
+SwarmRL -- Day 11: FastAPI Backend Server & WebSocket Stream
 
-Serves as the bridge between the RL inference engine and the React frontend.
+Serves as the high-throughput bridge between the RL simulation engine and the React frontend.
 Provides:
-  - WebSocket endpoint for streaming drone coordinates in real time
-  - REST endpoints for simulation control (start, stop, reset, configure)
-  - Health check endpoint
+  - WebSocket endpoint (/ws/simulation) streaming drone telemetry at 20-30 Hz
+  - Full bidirectional control (start, pause, reset, step, set_fps, set_policy)
+  - REST endpoints for configuration, status, and health checks
 """
+
+import os
+import sys
+import json
+import asyncio
+from contextlib import asynccontextmanager
+from typing import Optional
+from pydantic import BaseModel
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-import json
-import asyncio
 import uvicorn
+
+# Ensure root directory is in sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from env.world_config import WORLD_CONFIG
+from backend.simulation import SimulationEngine
+
+# Global simulation engine instance
+engine: Optional[SimulationEngine] = None
+connected_clients: list[WebSocket] = []
+
+
+async def broadcast_frame(frame: dict):
+    """Broadcast simulation frame to all active WebSocket clients."""
+    if not connected_clients:
+        return
+
+    dead_clients = []
+    # Use JSON string serialization for fast transmission
+    payload = json.dumps(frame)
+    for ws in connected_clients:
+        try:
+            await ws.send_text(payload)
+        except Exception:
+            dead_clients.append(ws)
+
+    for dead in dead_clients:
+        if dead in connected_clients:
+            connected_clients.remove(dead)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: initialize and teardown simulation engine."""
+    global engine
+    print("[Server] Initializing SimulationEngine...")
+    engine = SimulationEngine(fps=20)
+    engine.register_broadcast_callback(broadcast_frame)
+    print(f"[Server] SimulationEngine ready. Initial policy: {engine.policy_manager.mode}")
+    yield
+    print("[Server] Shutting down simulation engine...")
+    if engine:
+        engine.pause()
+
 
 app = FastAPI(
     title="SwarmRL Backend",
-    description="Real-time drone swarm simulation server",
-    version="0.1.0",
+    description="Real-time multi-agent drone swarm simulation and inference server",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
-# Allow React dev server to connect
+# CORS middleware for frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,55 +82,233 @@ app.add_middleware(
 
 
 # ──────────────────────────────────────────────
+# Pydantic Request Models
+# ──────────────────────────────────────────────
+
+class ResetRequest(BaseModel):
+    seed: Optional[int] = None
+
+
+class ConfigUpdateRequest(BaseModel):
+    fps: Optional[int] = None
+    policy: Optional[str] = None
+
+
+# ──────────────────────────────────────────────
 # REST Endpoints
 # ──────────────────────────────────────────────
 
 @app.get("/")
 async def root():
-    return {"project": "SwarmRL", "status": "running", "version": "0.1.0"}
+    return {
+        "project": "SwarmRL",
+        "version": "0.2.0",
+        "status": "online",
+        "active_clients": len(connected_clients),
+        "policy_mode": engine.policy_manager.mode if engine else "none",
+    }
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "engine_ready": engine is not None,
+        "sim_status": engine.status if engine else "offline",
+        "active_clients": len(connected_clients),
+    }
 
 
 @app.get("/api/config")
 async def get_config():
-    """Return the current simulation configuration."""
-    from env.world_config import WORLD_CONFIG
+    """Return complete simulation world and obstacle configuration."""
     return WORLD_CONFIG
 
 
-# ──────────────────────────────────────────────
-# WebSocket — Real-Time Drone Coordinate Stream
-# ──────────────────────────────────────────────
+@app.get("/api/simulation/status")
+async def get_simulation_status():
+    """Return current simulation metrics and status."""
+    if not engine:
+        return {"error": "Engine not initialized"}
 
-connected_clients: list[WebSocket] = []
+    return {
+        "status": engine.status,
+        "step": engine.current_step,
+        "max_steps": engine.max_steps,
+        "coverage": round(engine.latest_frame.get("coverage", 0.0), 4),
+        "coverage_pct": round(engine.latest_frame.get("coverage_pct", 0.0), 2),
+        "total_collisions": engine.total_collisions,
+        "policy_mode": engine.policy_manager.mode,
+        "fps": engine.fps,
+        "active_clients": len(connected_clients),
+    }
 
+
+@app.post("/api/simulation/start")
+async def start_simulation():
+    """Start or resume the continuous simulation loop."""
+    if not engine:
+        return {"error": "Engine not initialized"}
+    await engine.start()
+    return {"status": "started", "sim_status": engine.status}
+
+
+@app.post("/api/simulation/pause")
+async def pause_simulation():
+    """Pause the continuous simulation loop."""
+    if not engine:
+        return {"error": "Engine not initialized"}
+    engine.pause()
+    return {"status": "paused", "sim_status": engine.status}
+
+
+@app.post("/api/simulation/reset")
+async def reset_simulation(req: Optional[ResetRequest] = None):
+    """Reset the simulation environment."""
+    if not engine:
+        return {"error": "Engine not initialized"}
+    seed = req.seed if req else None
+    frame = engine.reset(seed=seed)
+    await broadcast_frame(frame)
+    return {"status": "reset", "frame": frame}
+
+
+@app.post("/api/simulation/step")
+async def step_simulation():
+    """Advance the simulation by exactly one step."""
+    if not engine:
+        return {"error": "Engine not initialized"}
+    frame = engine.step()
+    await broadcast_frame(frame)
+    return {"status": "stepped", "frame": frame}
+
+
+@app.post("/api/simulation/config")
+async def update_simulation_config(req: ConfigUpdateRequest):
+    """Update runtime simulation settings (FPS, Policy mode)."""
+    if not engine:
+        return {"error": "Engine not initialized"}
+
+    if req.fps is not None:
+        engine.set_fps(req.fps)
+    if req.policy is not None:
+        engine.policy_manager.set_mode(req.policy)
+
+    return {
+        "status": "updated",
+        "fps": engine.fps,
+        "policy_mode": engine.policy_manager.mode,
+    }
+
+
+# ──────────────────────────────────────────────
+# WebSocket Endpoint — High-Throughput Stream
+# ──────────────────────────────────────────────
 
 @app.websocket("/ws/simulation")
-async def simulation_stream(websocket: WebSocket):
+async def simulation_websocket(websocket: WebSocket):
     """
-    WebSocket endpoint that will stream drone positions to the frontend.
-    Currently sends a placeholder heartbeat; will be replaced with
-    actual simulation data once the PettingZoo environment is wired in.
+    WebSocket endpoint streaming drone telemetry to frontend clients.
+    Supports real-time bidirectional control:
+      - Client sends:
+          {"action": "start"}
+          {"action": "pause"}
+          {"action": "reset", "seed": 42}
+          {"action": "step"}
+          {"action": "set_fps", "fps": 30}
+          {"action": "set_policy", "policy": "trained" | "heuristic" | "random"}
+          {"action": "ping"}
+      - Server streams:
+          {"type": "init", ...} on connect
+          {"type": "state_update", ...} on each simulation frame
+          {"type": "pong"} in response to ping
     """
     await websocket.accept()
     connected_clients.append(websocket)
     print(f"[WS] Client connected. Total clients: {len(connected_clients)}")
 
     try:
+        # Send initial world config & current frame on connect
+        init_payload = {
+            "type": "init",
+            "world": WORLD_CONFIG["world"],
+            "obstacles": WORLD_CONFIG["obstacles"],
+            "search_zones": WORLD_CONFIG["search_zones"],
+            "num_drones": WORLD_CONFIG["drones"]["num_drones"],
+            "status": engine.status if engine else "paused",
+            "policy_mode": engine.policy_manager.mode if engine else "heuristic",
+            "fps": engine.fps if engine else 20,
+            "frame": engine.latest_frame if engine else {},
+        }
+        await websocket.send_text(json.dumps(init_payload))
+
         while True:
-            # Placeholder: send a heartbeat every second
-            await websocket.send_json({
-                "type": "heartbeat",
-                "message": "Simulation WebSocket active — environment not yet connected.",
-            })
-            await asyncio.sleep(1.0)
+            data_text = await websocket.receive_text()
+            try:
+                cmd = json.loads(data_text)
+            except json.JSONDecodeError:
+                continue
+
+            action = cmd.get("action", "").lower()
+
+            if action == "start":
+                if engine:
+                    await engine.start()
+                    await websocket.send_text(json.dumps({
+                        "type": "status",
+                        "status": engine.status,
+                        "step": engine.current_step,
+                    }))
+
+            elif action == "pause":
+                if engine:
+                    engine.pause()
+                    await websocket.send_text(json.dumps({
+                        "type": "status",
+                        "status": engine.status,
+                        "step": engine.current_step,
+                    }))
+
+            elif action == "reset":
+                if engine:
+                    seed = cmd.get("seed", None)
+                    frame = engine.reset(seed=seed)
+                    await broadcast_frame(frame)
+
+            elif action == "step":
+                if engine:
+                    frame = engine.step()
+                    await broadcast_frame(frame)
+
+            elif action == "set_fps":
+                fps = cmd.get("fps")
+                if engine and isinstance(fps, (int, float)):
+                    engine.set_fps(int(fps))
+                    await websocket.send_text(json.dumps({
+                        "type": "config_ack",
+                        "fps": engine.fps,
+                    }))
+
+            elif action == "set_policy":
+                pol = cmd.get("policy", "")
+                if engine and pol:
+                    new_mode = engine.policy_manager.set_mode(pol)
+                    await websocket.send_text(json.dumps({
+                        "type": "config_ack",
+                        "policy_mode": new_mode,
+                    }))
+
+            elif action == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+
     except WebSocketDisconnect:
-        connected_clients.remove(websocket)
+        if websocket in connected_clients:
+            connected_clients.remove(websocket)
         print(f"[WS] Client disconnected. Total clients: {len(connected_clients)}")
+    except Exception as e:
+        if websocket in connected_clients:
+            connected_clients.remove(websocket)
+        print(f"[WS] Connection error: {e}")
 
 
 # ──────────────────────────────────────────────
@@ -87,4 +316,4 @@ async def simulation_stream(websocket: WebSocket):
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.server:app", host="0.0.0.0", port=8000, reload=True)
