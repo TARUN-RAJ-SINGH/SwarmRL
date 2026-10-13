@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useSimulation } from './hooks/useSimulation';
+import { SimulationViewport } from './components/SimulationViewport';
 import './App.css';
 
 export function App() {
@@ -15,6 +16,9 @@ export function App() {
     setPolicy,
     setFps,
   } = useSimulation();
+
+  const [showLidar, setShowLidar] = useState(true);
+  const [selectedDrone, setSelectedDrone] = useState(null);
 
   const drones = simState.drones || [];
   const coveragePercent = simState.coverage_pct || 0;
@@ -171,41 +175,40 @@ export function App() {
               </button>
             ))}
           </div>
+
+          <button
+            className={`btn-control btn-toggle ${showLidar ? 'btn-toggle-on' : ''}`}
+            onClick={() => setShowLidar(!showLidar)}
+            title="Toggle LiDAR ray visibility"
+          >
+            {showLidar ? '◉ LiDAR ON' : '○ LiDAR OFF'}
+          </button>
         </div>
       </section>
 
       {/* ── Main Workspace ── */}
       <main className="workspace-grid">
-        {/* Viewport Card */}
+        {/* 3D Viewport */}
         <div className="viewport-container">
           <div className="panel-header">
             <span>3D TACTICAL DISASTER ZONE (100m × 100m × 50m)</span>
-            <span className="panel-tag">Day 12 Viewport Mount Ready</span>
+            <span className="panel-tag">
+              {drones.length} DRONES LIVE • {simState.policy_mode.toUpperCase()}
+            </span>
           </div>
 
-          <div className="viewport-stage">
-            <div className="grid-overlay"></div>
-            <div className="radar-sweep"></div>
+          <div className="viewport-canvas-wrap">
+            <SimulationViewport
+              worldConfig={worldConfig}
+              drones={drones}
+              showLidar={showLidar}
+            />
 
-            <div className="viewport-center-info">
-              <div className="viewport-icon">🛸</div>
-              <h3>3D Three.js Viewport Integration</h3>
-              <p>
-                WebSocket telemetry streaming active at {simState.fps} Hz.
-                Positions, velocities, LiDAR rays, and collision meshes ready for Day 12 Canvas mounting.
-              </p>
-              <div className="specs-list">
-                <div className="spec-badge">Bounds: 100×100×50m</div>
-                <div className="spec-badge">Obstacles: 5 Built</div>
-                <div className="spec-badge">Voxel Grid: 62,500 Cells</div>
-                <div className="spec-badge">LiDAR: 10 Rays/Drone</div>
-              </div>
-            </div>
-
-            <div className="viewport-coords-overlay">
-              <div>ORIGIN: [0, 0, 0]</div>
-              <div>EXTENT: [100, 100, 50]</div>
-              <div>CLUSTERING: Basecamp [10, 10, 5]</div>
+            {/* Floating HUD overlay on top of canvas */}
+            <div className="viewport-hud">
+              <div className="hud-item">COVERAGE {coveragePercent.toFixed(1)}%</div>
+              <div className="hud-item">STEP {simState.step}/{simState.max_steps}</div>
+              <div className="hud-item">{simState.fps} FPS</div>
             </div>
           </div>
         </div>
@@ -230,7 +233,11 @@ export function App() {
               </thead>
               <tbody>
                 {drones.map((d) => (
-                  <tr key={d.id} className={d.alive ? '' : 'dead-row'}>
+                  <tr
+                    key={d.id}
+                    className={`${d.alive ? '' : 'dead-row'} ${selectedDrone === d.id ? 'selected-row' : ''}`}
+                    onClick={() => setSelectedDrone(selectedDrone === d.id ? null : d.id)}
+                  >
                     <td className="drone-id-col">
                       <span className="agent-badge">#{d.id}</span>
                     </td>

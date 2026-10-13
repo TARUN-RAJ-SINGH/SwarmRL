@@ -446,102 +446,58 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 520px;
+}
+
+.viewport-canvas-wrap {
+  flex: 1;
+  position: relative;
+  background: #050810;
   min-height: 480px;
 }
 
-.viewport-stage {
-  flex: 1;
-  position: relative;
-  background: radial-gradient(circle at center, #0e1526 0%, #05070c 80%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+.viewport-canvas-wrap canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
-.grid-overlay {
+/* Floating HUD overlay on 3D canvas */
+.viewport-hud {
   position: absolute;
-  inset: 0;
-  background-image: 
-    linear-gradient(rgba(0, 240, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-
-.radar-sweep {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  background: conic-gradient(from 0deg at 50% 50%, rgba(0, 240, 255, 0.1) 0deg, transparent 60deg);
-  animation: sweep 8s linear infinite;
-  opacity: 0.6;
-}
-
-@keyframes sweep {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.viewport-center-info {
-  position: relative;
-  z-index: 2;
-  text-align: center;
-  max-width: 500px;
-  padding: 30px;
-  background: rgba(13, 18, 29, 0.85);
-  backdrop-filter: blur(14px);
-  border: 1px solid var(--border-accent);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
-}
-
-.viewport-icon {
-  font-size: 2.8rem;
-  margin-bottom: 12px;
-}
-
-.viewport-center-info h3 {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #ffffff;
-  margin-bottom: 8px;
-}
-
-.viewport-center-info p {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  line-height: 1.5;
-  margin-bottom: 18px;
-}
-
-.specs-list {
+  top: 12px;
+  right: 14px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
+  gap: 10px;
+  z-index: 10;
+  pointer-events: none;
 }
 
-.spec-badge {
-  font-size: 0.72rem;
+.hud-item {
   font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   padding: 4px 10px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(0, 240, 255, 0.2);
   color: var(--accent-cyan);
+  backdrop-filter: blur(6px);
 }
 
-.viewport-coords-overlay {
-  position: absolute;
-  bottom: 14px;
-  left: 18px;
-  font-size: 0.7rem;
-  font-family: var(--font-mono);
-  color: var(--text-dim);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 2;
+/* LiDAR toggle */
+.btn-toggle {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.78rem;
+}
+
+.btn-toggle-on {
+  background: rgba(0, 240, 255, 0.15);
+  color: var(--accent-cyan);
+  border-color: rgba(0, 240, 255, 0.35);
 }
 
 /* Telemetry Table Panel */
@@ -608,4 +564,14 @@ body {
 
 .dead-row {
   opacity: 0.4;
+}
+
+.selected-row {
+  background: rgba(0, 240, 255, 0.08) !important;
+  border-left: 2px solid var(--accent-cyan);
+}
+
+.telemetry-table tr {
+  cursor: pointer;
+  transition: background 0.15s ease;
 }
