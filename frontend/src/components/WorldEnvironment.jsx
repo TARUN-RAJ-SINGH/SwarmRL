@@ -32,7 +32,7 @@ function getObsStyle(id) {
   return OBS_COLORS.building;
 }
 
-export function WorldEnvironment({ worldConfig }) {
+export function WorldEnvironment({ worldConfig, sectors = {} }) {
   if (!worldConfig) return null;
 
   const world = worldConfig.world;
@@ -146,12 +146,22 @@ export function WorldEnvironment({ worldConfig }) {
         );
       })}
 
-      {/* Search zone indicators */}
+      {/* Search zone indicators with dynamic sector completion feedback */}
       {searchZones.map((zone) => {
-        const zColor = zone.priority === 'high' ? '#f59e0b' : '#8b5cf6';
+        const secInfo = sectors[zone.id];
+        const pct = secInfo?.coverage_pct || 0;
+        // Dynamic completion color:
+        // >=80% = neon emerald (#10b981), >=40% = cyan (#00f0ff), otherwise standard zone color
+        let zColor = zone.priority === 'high' ? '#f59e0b' : '#8b5cf6';
+        if (pct >= 80) {
+          zColor = '#10b981';
+        } else if (pct >= 40) {
+          zColor = '#00f0ff';
+        }
+
         return (
           <group key={zone.id}>
-            {/* Flat ring on ground */}
+            {/* Flat perimeter ring on ground */}
             <mesh
               position={[zone.center[0], 0.05, zone.center[1]]}
               rotation={[-Math.PI / 2, 0, 0]}
@@ -160,21 +170,19 @@ export function WorldEnvironment({ worldConfig }) {
               <meshBasicMaterial
                 color={zColor}
                 transparent
-                opacity={0.25}
+                opacity={0.35}
                 side={THREE.DoubleSide}
               />
             </mesh>
-            {/* Filled translucent disc */}
-            <mesh
-              position={[zone.center[0], 0.03, zone.center[1]]}
-              rotation={[-Math.PI / 2, 0, 0]}
-            >
-              <circleGeometry args={[zone.radius, 64]} />
+            {/* Translucent volume cylinder */}
+            <mesh position={[zone.center[0], wz / 4, zone.center[1]]}>
+              <cylinderGeometry args={[zone.radius, zone.radius, wz / 2, 32, 1, true]} />
               <meshBasicMaterial
                 color={zColor}
                 transparent
-                opacity={0.04}
+                opacity={0.06}
                 side={THREE.DoubleSide}
+                wireframe
               />
             </mesh>
           </group>

@@ -26,10 +26,11 @@ const DRONE_COLORS = [
   '#6366f1', // indigo
 ];
 
-export function DroneModel({ drone, showLidar = true }) {
+export function DroneModel({ drone, showLidar = true, isSelected = false, onClick }) {
   const groupRef = useRef();
   const rotorRef = useRef();
   const glowRef = useRef();
+  const targetRingRef = useRef();
 
   const color = DRONE_COLORS[drone.id % DRONE_COLORS.length];
   const pos = drone.position;
@@ -42,6 +43,9 @@ export function DroneModel({ drone, showLidar = true }) {
     }
     if (glowRef.current) {
       glowRef.current.intensity = 0.4 + Math.sin(Date.now() * 0.003 + drone.id) * 0.15;
+    }
+    if (targetRingRef.current) {
+      targetRingRef.current.rotation.z += delta * 1.5;
     }
   });
 
@@ -58,7 +62,14 @@ export function DroneModel({ drone, showLidar = true }) {
   }, [pos[0], pos[1], pos[2], showLidar, drone.lidar_hits]);
 
   return (
-    <group ref={groupRef} position={[pos[0], pos[2], pos[1]]}>
+    <group
+      ref={groupRef}
+      position={[pos[0], pos[2], pos[1]]}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick && onClick();
+      }}
+    >
       {/* Main body sphere */}
       <mesh>
         <sphereGeometry args={[0.5, 16, 16]} />
@@ -79,6 +90,17 @@ export function DroneModel({ drone, showLidar = true }) {
         <meshBasicMaterial color="#ffffff" transparent opacity={0.5} />
       </mesh>
 
+      {/* Selected targeting ring */}
+      {isSelected && (
+        <group rotation={[-Math.PI / 2, 0, 0]}>
+          <mesh ref={targetRingRef}>
+            <ringGeometry args={[0.9, 1.05, 32]} />
+            <meshBasicMaterial color="#fbbf24" side={THREE.DoubleSide} transparent opacity={0.8} />
+          </mesh>
+          <pointLight color="#fbbf24" intensity={1.5} distance={10} />
+        </group>
+      )}
+
       {/* Rotor disc */}
       <mesh ref={rotorRef} position={[0, 0.55, 0]} rotation={[0, 0, 0]}>
         <cylinderGeometry args={[0.7, 0.7, 0.04, 6]} />
@@ -97,7 +119,7 @@ export function DroneModel({ drone, showLidar = true }) {
       {/* Drone ID label - small sphere indicator above */}
       <mesh position={[0, 1.1, 0]}>
         <sphereGeometry args={[0.12, 8, 8]} />
-        <meshBasicMaterial color="#ffffff" />
+        <meshBasicMaterial color={isSelected ? "#fbbf24" : "#ffffff"} />
       </mesh>
 
       {/* LiDAR beams rendered at world coordinates, so offset back */}

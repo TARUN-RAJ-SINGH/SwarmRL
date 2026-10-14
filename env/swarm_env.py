@@ -73,6 +73,8 @@ class SwarmEnv(ParallelEnv):
         # Get initial observations using step_all with zero actions
         empty_actions = {d.id: np.zeros(3) for d in self.drones}
         result = self.processor.step_all(self.drones, empty_actions, self.coverage_grid, self.current_step)
+        self.last_step_result = result
+        self.last_new_voxels = result.get("new_voxels", [])
         
         obs = {f"drone_{did}": o for did, o in result["observations"].items()}
         infos = {a: {} for a in self.agents}
@@ -94,6 +96,8 @@ class SwarmEnv(ParallelEnv):
             
         # Step the physics and processing pipeline
         result = self.processor.step_all(self.drones, processor_actions, self.coverage_grid, self.current_step)
+        self.last_step_result = result
+        self.last_new_voxels = result.get("new_voxels", [])
         
         # Build PettingZoo returns
         obs = {}

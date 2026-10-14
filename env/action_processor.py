@@ -182,7 +182,7 @@ class ActionProcessor:
             resolve_drone_obstacle_collision(drone, obs)
 
         # 4. Update coverage grid
-        new_cells = self._update_coverage(drones, coverage_grid)
+        new_cells, new_voxels = self._update_coverage(drones, coverage_grid)
         total_cells = max(coverage_grid.size, 1)
         global_coverage = float(np.sum(coverage_grid)) / total_cells
 
@@ -208,6 +208,7 @@ class ActionProcessor:
             },
             "coverage": global_coverage,
             "new_cells": new_cells,
+            "new_voxels": new_voxels,
             "applied_accels": applied_accels,
         }
 
@@ -215,15 +216,16 @@ class ActionProcessor:
     # Coverage Update
     # ──────────────────────────────────────────────
 
-    def _update_coverage(self, drones: list[Drone], coverage_grid: np.ndarray) -> int:
+    def _update_coverage(self, drones: list[Drone], coverage_grid: np.ndarray) -> tuple[int, list[list[float]]]:
         """
         Mark voxels around each drone as explored based on sensor range.
-        Returns the number of newly explored cells this step.
+        Returns (new_cells, new_voxels) where new_voxels contains sampled 3D coordinates.
         """
         res = WORLD_CONFIG["coverage"]["grid_resolution"]
         sensor_range = WORLD_CONFIG["drones"]["sensor_range"]
         radius_cells = int(np.ceil(sensor_range / res))
         new_cells = 0
+        new_voxels = []
 
         for drone in drones:
             if not drone.alive:
@@ -239,9 +241,22 @@ class ActionProcessor:
             if np.any(hi <= lo):
                 continue
 
-            # Count new cells before marking
             local_slice = coverage_grid[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]
-            unexplored = np.sum(~local_slice)
+            unexplored_mask = ~local_slice
+            unexplored = np.sum(unexplored_mask)
+
+            if unexplored > 0:
+                unexp_idx = np.argwhere(unexplored_mask)
+                if len(unexp_idx) > 15:
+                    step_stride = max(1, len(unexp_idx) // 15)
+                    sampled_idx = unexp_idx[::step_stride][:15]
+                else:
+                    sampled_idx = unexp_idx
+
+                world_idx = sampled_idx + lo
+                coords = (world_idx + 0.5) * res + WORLD_ORIGIN
+                for pt in coords:
+                    new_voxels.append([round(float(c), 1) for c in pt])
 
             # Mark as explored
             coverage_grid[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] = True
@@ -249,7 +264,11 @@ class ActionProcessor:
             new_cells += int(unexplored)
             drone.cells_explored += int(unexplored)
 
-        return new_cells
+        if len(new_voxels) > 50:
+            stride = max(1, len(new_voxels) // 50)
+            new_voxels = new_voxels[::stride][:50]
+
+        return new_cells, new_voxels
 
     def reset(self):
         """Clear action history (call on episode reset)."""

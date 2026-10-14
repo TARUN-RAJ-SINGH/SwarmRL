@@ -224,6 +224,27 @@ class SimulationEngine:
         self._loop_task: Optional[asyncio.Task] = None
         self._broadcast_callbacks: list[Callable[[dict], None]] = []
 
+        # Precompute search zone masks for fast sector coverage metrics
+        grid_res = WORLD_CONFIG["coverage"]["grid_resolution"]
+        gx = int(WORLD_SIZE[0] / grid_res)
+        gy = int(WORLD_SIZE[1] / grid_res)
+        gz = int(WORLD_SIZE[2] / grid_res)
+        xs = (np.arange(gx) + 0.5) * grid_res
+        ys = (np.arange(gy) + 0.5) * grid_res
+        X, Y = np.meshgrid(xs, ys, indexing='ij')
+
+        # Zone A: center [50, 50, 0], radius 45
+        dist_a = np.sqrt((X - 50.0)**2 + (Y - 50.0)**2)
+        mask_a_2d = dist_a <= 45.0
+        self.zone_a_mask = np.repeat(mask_a_2d[:, :, np.newaxis], gz, axis=2)
+        self.zone_a_total = max(int(np.sum(self.zone_a_mask)), 1)
+
+        # Zone B: center [85, 85, 0], radius 15
+        dist_b = np.sqrt((X - 85.0)**2 + (Y - 85.0)**2)
+        mask_b_2d = dist_b <= 15.0
+        self.zone_b_mask = np.repeat(mask_b_2d[:, :, np.newaxis], gz, axis=2)
+        self.zone_b_total = max(int(np.sum(self.zone_b_mask)), 1)
+
         # Initialize environment state
         self.reset()
 
@@ -243,9 +264,11 @@ class SimulationEngine:
         self.status = "paused"
 
         empty_actions = {f"drone_{d.id}": np.zeros(3) for d in self.env.drones}
+        init_voxels = getattr(self.env, "last_new_voxels", [])
         self.latest_frame = self._build_frame(
             actions=empty_actions,
             new_cells=0,
+            new_voxels=init_voxels,
             dd_cols=[],
             do_cols=[],
             is_terminated=False,
@@ -266,13 +289,14 @@ class SimulationEngine:
         self.current_step = self.env.current_step
 
         # Gather collision info from processor
-        step_result = getattr(self.env, "processor", None)
         dd_cols = []
         do_cols = []
         new_cells = 0
         if self.env.drones:
             first_info = infos.get(f"drone_{self.env.drones[0].id}", {})
             new_cells = first_info.get("cells_explored", 0)
+
+        new_voxels = getattr(self.env, "last_new_voxels", [])
 
         # Check termination or truncation
         is_terminated = any(terminations.values()) if terminations else False
@@ -288,6 +312,7 @@ class SimulationEngine:
         self.latest_frame = self._build_frame(
             actions=actions,
             new_cells=new_cells,
+            new_voxels=new_voxels,
             dd_cols=dd_cols,
             do_cols=do_cols,
             is_terminated=is_terminated,
@@ -299,6 +324,7 @@ class SimulationEngine:
         self,
         actions: dict,
         new_cells: int,
+        new_voxels: list,
         dd_cols: list,
         do_cols: list,
         is_terminated: bool,
@@ -336,6 +362,75 @@ class SimulationEngine:
                 "action": [round(float(a), 2) for a in action],
             })
 
+        # Sector coverage calculations
+        zone_a_cov = float(np.sum(self.env.coverage_grid & self.zone_a_mask)) / self.zone_a_total
+        zone_b_cov = float(np.sum(self.env.coverage_grid & self.zone_b_mask)) / self.zone_b_total
+
+        sectors = {
+            "zone_A": {
+                "id": "zone_A",
+                "name": "Primary Disaster Sector",
+                "coverage_pct": round(zone_a_cov * 100, 2),
+                "target_pct": 85.0,
+                "priority": "high",
+                "center": [50.0, 50.0, 0.0],
+                "radius": 45.0,
+            },
+            "zone_B": {
+                "id": "zone_B",
+                "name": "Secondary Search Sector",
+                "coverage_pct": round(zone_b_cov * 100, 2),
+                "target_pct": 85.0,
+                "priority": "medium",
+                "center": [85.0, 85.0, 0.0],
+                "radius": 15.0,
+            },
+        }
+
+        # 2D Ground Heatmap Density (25x25 grid of [0, 1] coverage fractions)
+        cov_2d = np.mean(self.env.coverage_grid, axis=2)
+        heatmap_25x25 = cov_2d.reshape(25, 2, 25, 2).mean(axis=(1, 3))
+        heatmap_grid = np.round(heatmap_25x25, 2).tolist()
+
+        # Swarm formation & dispersion analytics
+        active_drones = [d for d in self.env.drones if d.alive]
+        if active_drones:
+            positions = np.array([d.position for d in active_drones])
+            velocities = np.array([d.velocity for d in active_drones])
+            centroid = np.mean(positions, axis=0)
+            dispersion = float(np.mean(np.linalg.norm(positions - centroid, axis=1)))
+            speeds = np.linalg.norm(velocities, axis=1)
+            avg_speed = float(np.mean(speeds))
+
+            if len(active_drones) > 1:
+                diffs = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]
+                dists = np.linalg.norm(diffs, axis=2)
+                i_upper = np.triu_indices(len(active_drones), k=1)
+                pair_dists = dists[i_upper]
+                min_dist = float(np.min(pair_dists))
+                avg_dist = float(np.mean(pair_dists))
+                max_dist = float(np.max(pair_dists))
+            else:
+                min_dist = 0.0
+                avg_dist = 0.0
+                max_dist = 0.0
+        else:
+            centroid = np.zeros(3)
+            dispersion = 0.0
+            avg_speed = 0.0
+            min_dist = 0.0
+            avg_dist = 0.0
+            max_dist = 0.0
+
+        swarm_analytics = {
+            "centroid": [round(float(c), 2) for c in centroid],
+            "dispersion_radius": round(dispersion, 2),
+            "min_distance": round(min_dist, 2),
+            "avg_distance": round(avg_dist, 2),
+            "max_distance": round(max_dist, 2),
+            "avg_speed": round(avg_speed, 2),
+        }
+
         return {
             "type": "state_update",
             "step": self.current_step,
@@ -343,11 +438,15 @@ class SimulationEngine:
             "coverage": round(coverage, 4),
             "coverage_pct": round(coverage * 100, 2),
             "new_cells": new_cells,
+            "new_voxels": new_voxels,
             "total_collisions": self.total_collisions,
             "status": self.status,
             "policy_mode": self.policy_manager.mode,
             "fps": self.fps,
             "drones": drones_data,
+            "sectors": sectors,
+            "heatmap_grid": heatmap_grid,
+            "swarm_analytics": swarm_analytics,
             "events": {
                 "drone_drone_collisions": dd_cols,
                 "drone_obstacle_collisions": do_cols,
