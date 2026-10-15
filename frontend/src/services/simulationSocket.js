@@ -127,6 +127,10 @@ export class SimulationSocket {
   setFps(fps) {
     return this.send('set_fps', { fps });
   }
+
+  setNumDrones(count) {
+    return this.send('set_num_drones', { count });
+  }
 }
 
 // Global singleton instance

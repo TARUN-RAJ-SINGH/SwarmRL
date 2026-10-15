@@ -18,11 +18,11 @@ from env.spaces import get_observation_space, get_action_space
 class SwarmEnv(ParallelEnv):
     metadata = {"render_modes": ["human"], "name": "swarmrl_v0"}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None, num_drones=None):
         super().__init__()
         self.render_mode = render_mode
         self.cfg = WORLD_CONFIG
-        self.num_drones = self.cfg["drones"]["num_drones"]
+        self.num_drones = int(num_drones) if num_drones is not None else self.cfg["drones"]["num_drones"]
         self.max_steps = self.cfg["episode"]["max_steps"]
         self.target_coverage = self.cfg["coverage"]["target_coverage"]
         

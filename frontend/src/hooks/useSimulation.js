@@ -75,6 +75,7 @@ export function useSimulation() {
         ...prev,
         policy_mode: data.policy_mode ?? prev.policy_mode,
         fps: data.fps ?? prev.fps,
+        num_drones: data.num_drones ?? prev.num_drones,
       }));
     });
 
@@ -95,6 +96,7 @@ export function useSimulation() {
   const reset = useCallback((seed = null) => simulationSocket.reset(seed), []);
   const setPolicy = useCallback((policy) => simulationSocket.setPolicy(policy), []);
   const setFps = useCallback((fps) => simulationSocket.setFps(fps), []);
+  const setNumDrones = useCallback((count) => simulationSocket.setNumDrones(count), []);
 
   return {
     connected,
@@ -107,6 +109,7 @@ export function useSimulation() {
     reset,
     setPolicy,
     setFps,
+    setNumDrones,
   };
 }
 

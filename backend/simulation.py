@@ -207,10 +207,11 @@ class SimulationEngine:
     gathers LiDAR hits & telemetry, and coordinates with WebSocket broadcasters.
     """
 
-    def __init__(self, fps: int = 20, checkpoint_path: Optional[str] = None):
+    def __init__(self, fps: int = 20, checkpoint_path: Optional[str] = None, num_drones: Optional[int] = None):
         self.fps = fps
         self.dt = 1.0 / max(fps, 1)
-        self.env = SwarmEnv()
+        self.num_drones = int(num_drones) if num_drones is not None else WORLD_CONFIG["drones"]["num_drones"]
+        self.env = SwarmEnv(num_drones=self.num_drones)
         self.policy_manager = PolicyManager(checkpoint_path)
 
         self.status = "paused"  # "running", "paused", "completed"
@@ -247,6 +248,19 @@ class SimulationEngine:
 
         # Initialize environment state
         self.reset()
+
+    def set_num_drones(self, num: int) -> int:
+        """Dynamically scale fleet size (e.g. 10, 25, 50)."""
+        num = max(1, min(int(num), 100))
+        if num != self.num_drones:
+            self.num_drones = num
+            was_running = (self.status == "running")
+            self.pause()
+            self.env = SwarmEnv(num_drones=self.num_drones)
+            self.reset()
+            if was_running:
+                asyncio.create_task(self.start())
+        return self.num_drones
 
     def register_broadcast_callback(self, cb: Callable[[dict], None]):
         """Register a callback invoked whenever a new frame is generated."""
@@ -443,6 +457,7 @@ class SimulationEngine:
             "status": self.status,
             "policy_mode": self.policy_manager.mode,
             "fps": self.fps,
+            "num_drones": self.num_drones,
             "drones": drones_data,
             "sectors": sectors,
             "heatmap_grid": heatmap_grid,

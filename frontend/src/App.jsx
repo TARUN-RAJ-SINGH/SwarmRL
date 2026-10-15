@@ -15,6 +15,7 @@ export function App() {
     reset,
     setPolicy,
     setFps,
+    setNumDrones,
   } = useSimulation();
 
   // Day 13 Camera & Layer States
@@ -190,6 +191,21 @@ export function App() {
                 disabled={!connected}
               >
                 {rate} FPS
+              </button>
+            ))}
+          </div>
+
+          <label className="select-label">Fleet:</label>
+          <div className="segmented-control">
+            {[10, 25, 50].map((count) => (
+              <button
+                key={count}
+                className={`segment-btn ${(simState.num_drones || drones.length || 10) === count ? 'active' : ''}`}
+                onClick={() => setNumDrones(count)}
+                disabled={!connected}
+                title={`Scale swarm fleet size to ${count} drones`}
+              >
+                {count} Agents
               </button>
             ))}
           </div>

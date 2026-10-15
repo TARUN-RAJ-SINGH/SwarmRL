@@ -92,6 +92,7 @@ class ResetRequest(BaseModel):
 class ConfigUpdateRequest(BaseModel):
     fps: Optional[int] = None
     policy: Optional[str] = None
+    num_drones: Optional[int] = None
 
 
 # ──────────────────────────────────────────────
@@ -185,7 +186,7 @@ async def step_simulation():
 
 @app.post("/api/simulation/config")
 async def update_simulation_config(req: ConfigUpdateRequest):
-    """Update runtime simulation settings (FPS, Policy mode)."""
+    """Update runtime simulation settings (FPS, Policy mode, Fleet size)."""
     if not engine:
         return {"error": "Engine not initialized"}
 
@@ -193,11 +194,15 @@ async def update_simulation_config(req: ConfigUpdateRequest):
         engine.set_fps(req.fps)
     if req.policy is not None:
         engine.policy_manager.set_mode(req.policy)
+    if req.num_drones is not None:
+        engine.set_num_drones(req.num_drones)
+        await broadcast_frame(engine.latest_frame)
 
     return {
         "status": "updated",
         "fps": engine.fps,
         "policy_mode": engine.policy_manager.mode,
+        "num_drones": engine.num_drones,
     }
 
 
@@ -297,6 +302,16 @@ async def simulation_websocket(websocket: WebSocket):
                         "type": "config_ack",
                         "policy_mode": new_mode,
                     }))
+
+            elif action == "set_num_drones":
+                count = cmd.get("count") or cmd.get("num_drones")
+                if engine and count:
+                    new_count = engine.set_num_drones(int(count))
+                    await websocket.send_text(json.dumps({
+                        "type": "config_ack",
+                        "num_drones": new_count,
+                    }))
+                    await broadcast_frame(engine.latest_frame)
 
             elif action == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
