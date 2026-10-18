@@ -163,3 +163,14 @@ class SwarmEnv(ParallelEnv):
             self.agents = []
             
         return obs, rewards, terminations, truncations, infos
+
+    def get_global_state(self) -> dict:
+        """
+        Build and return the centralized global state for CTDE training.
+        Returns a dict containing agent entity matrix (N, 12), env context (11),
+        flat state, padded state, and swarm metadata.
+        """
+        from training.centralized_critic import GlobalStateBuilder
+        if not hasattr(self, "_state_builder"):
+            self._state_builder = GlobalStateBuilder()
+        return self._state_builder.build_from_env(self)

@@ -63,7 +63,7 @@ class ServerThread(threading.Thread):
         self.server.should_exit = True
 
 
-async def test_websocket_flow():
+async def _async_websocket_flow():
     print("\nTEST 3: WebSocket Connection & Handshake")
     print("-" * 65)
 
@@ -198,7 +198,7 @@ def run_tests():
         # ──────────────────────────────────────────
         # TEST 3 & 4: WebSocket
         # ──────────────────────────────────────────
-        asyncio.run(test_websocket_flow())
+        asyncio.run(_async_websocket_flow())
 
     finally:
         server_thread.stop()
@@ -210,6 +210,11 @@ def run_tests():
     else:
         print(f"WARNING: {total_tests - passed_tests} test(s) failed!")
     print("=" * 65)
+    assert passed_tests == total_tests, f"{total_tests - passed_tests} tests failed in Day 11"
+
+
+def test_day11_live_server():
+    run_tests()
 
 
 if __name__ == "__main__":

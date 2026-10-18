@@ -267,3 +267,12 @@ class CommSwarmEnv(ParallelEnv):
             "isolated_drones":  int(np.sum(np.array(neighbour_counts) == 0)),
             "mean_separation":  float(np.mean(separations)) if separations else 0.0,
         }
+
+    def get_global_state(self) -> dict:
+        """
+        Return the centralized global state for CTDE training,
+        enriched with communication topology statistics.
+        """
+        state = self._inner.get_global_state()
+        state["comm_stats"] = self.get_comm_stats()
+        return state
