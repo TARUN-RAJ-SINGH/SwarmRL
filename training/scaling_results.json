@@ -1,0 +1,30 @@
+{
+  "fleet_10": {
+    "num_drones": 10,
+    "iterations": 2,
+    "steps_per_iter": 20,
+    "total_transitions_per_iter": 200,
+    "mean_iteration_seconds": 0.20434892177581787,
+    "effective_fps": 978.7181564843837,
+    "final_coverage": 0.033232,
+    "mean_coverage": 0.029808,
+    "final_reward": 10.730000167153776,
+    "mean_reward": 8.05500020487234,
+    "total_collisions": 0,
+    "collisions_per_drone": 0.0
+  },
+  "fleet_25": {
+    "num_drones": 25,
+    "iterations": 2,
+    "steps_per_iter": 20,
+    "total_transitions_per_iter": 500,
+    "mean_iteration_seconds": 0.606201171875,
+    "effective_fps": 824.8086991542489,
+    "final_coverage": 0.034512,
+    "mean_coverage": 0.032088,
+    "final_reward": 7.604999843984842,
+    "mean_reward": 6.263499858696013,
+    "total_collisions": 2,
+    "collisions_per_drone": 0.08
+  }
+}

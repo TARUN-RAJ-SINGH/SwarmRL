@@ -34,7 +34,7 @@ class PolicyManager:
     """
     Manages policy selection and inference for drone swarm control.
     Supports:
-      - 'trained'  : RLlib PyTorch RLModule loaded from checkpoint
+      - 'trained'  : Native PyTorch MAPPO actor (.pt checkpoint) or RLlib RLModule
       - 'heuristic': Artificial Potential Field (APF) exploration & collision avoidance
       - 'random'   : Uniform random exploration baseline
     """
@@ -42,58 +42,100 @@ class PolicyManager:
     def __init__(self, checkpoint_path: Optional[str] = None):
         self.mode = "heuristic"  # Default mode
         self.trained_module = None
+        self.native_mappo_actor = None
         self.checkpoint_path = checkpoint_path
         self._load_checkpoint(checkpoint_path)
 
     def _find_default_checkpoint(self) -> Optional[str]:
-        """Find the latest trained checkpoint if available."""
+        """Find the latest trained checkpoint if available (supports native .pt and RLlib)."""
         checkpoints_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "checkpoints"))
         if not os.path.isdir(checkpoints_dir):
             return None
 
-        # Look for learner rl_module shared_policy checkpoints
-        patterns = [
+        # 1. First priority: native PyTorch MAPPO checkpoints (.pt files)
+        pt_patterns = [
+            os.path.join(checkpoints_dir, "day17_mappo", "day17_mappo_final.pt"),
+            os.path.join(checkpoints_dir, "*", "*.pt"),
+            os.path.join(checkpoints_dir, "*.pt"),
+        ]
+        pt_candidates = []
+        for p in pt_patterns:
+            pt_candidates.extend(glob.glob(p))
+        if pt_candidates:
+            pt_candidates.sort(key=os.path.getmtime, reverse=True)
+            return pt_candidates[0]
+
+        # 2. Second priority: RLlib learner rl_module shared_policy checkpoints
+        rllib_patterns = [
             os.path.join(checkpoints_dir, "*", "learner_group", "learner", "rl_module", "shared_policy"),
             os.path.join(checkpoints_dir, "*_iter_*", "learner_group", "learner", "rl_module", "shared_policy"),
         ]
-        candidates = []
-        for p in patterns:
-            candidates.extend(glob.glob(p))
+        rllib_candidates = []
+        for p in rllib_patterns:
+            rllib_candidates.extend(glob.glob(p))
+        if rllib_candidates:
+            rllib_candidates.sort(key=os.path.getmtime, reverse=True)
+            return rllib_candidates[0]
 
-        if candidates:
-            # Sort by modification time descending
-            candidates.sort(key=os.path.getmtime, reverse=True)
-            return candidates[0]
         return None
 
     def _load_checkpoint(self, path: Optional[str] = None):
-        """Attempts to load a trained PyTorch RLModule."""
+        """Attempts to load a trained native PyTorch MAPPO actor or RLlib RLModule."""
         target_path = path or self._find_default_checkpoint()
-        if not target_path or not os.path.isdir(target_path):
+        if not target_path or (not os.path.isdir(target_path) and not os.path.isfile(target_path)):
             print(f"[PolicyManager] No trained checkpoint found. Operating in heuristic mode.")
             self.mode = "heuristic"
             return
 
-        try:
-            from ray.rllib.core.rl_module.rl_module import RLModule
-            print(f"[PolicyManager] Loading RLModule checkpoint from: {target_path}")
-            self.trained_module = RLModule.from_checkpoint(target_path)
-            self.trained_module.eval()
-            self.checkpoint_path = target_path
-            self.mode = "trained"
-            print("[PolicyManager] Successfully loaded trained RL policy!")
-        except Exception as e:
-            print(f"[PolicyManager] Warning: Failed to load checkpoint ({e}). Falling back to heuristic.")
-            self.trained_module = None
-            self.mode = "heuristic"
+        # Case A: Native PyTorch MAPPO checkpoint (.pt file)
+        if os.path.isfile(target_path) and target_path.endswith((".pt", ".pth")):
+            try:
+                print(f"[PolicyManager] Loading native PyTorch MAPPO checkpoint: {target_path}")
+                try:
+                    ckpt = torch.load(target_path, map_location="cpu", weights_only=False)
+                except TypeError:
+                    ckpt = torch.load(target_path, map_location="cpu")
+
+                if isinstance(ckpt, dict) and "actor_state_dict" in ckpt:
+                    from training.mappo_policy import MAPPOActor
+                    actor_sd = ckpt["actor_state_dict"]
+                    first_w = actor_sd.get("trunk.0.weight")
+                    obs_dim = first_w.shape[1] if first_w is not None else 42
+                    self.native_mappo_actor = MAPPOActor(obs_dim=obs_dim, act_dim=3)
+                    self.native_mappo_actor.load_state_dict(actor_sd)
+                    self.native_mappo_actor.eval()
+                    self.checkpoint_path = target_path
+                    self.mode = "trained"
+                    print(f"[PolicyManager] Successfully loaded native MAPPO actor (obs_dim={obs_dim})!")
+                    return
+            except Exception as e:
+                print(f"[PolicyManager] Warning: Failed loading native MAPPO checkpoint ({e}). Trying RLlib...")
+
+        # Case B: RLlib directory checkpoint
+        if os.path.isdir(target_path):
+            try:
+                from ray.rllib.core.rl_module.rl_module import RLModule
+                print(f"[PolicyManager] Loading RLModule checkpoint from: {target_path}")
+                self.trained_module = RLModule.from_checkpoint(target_path)
+                self.trained_module.eval()
+                self.checkpoint_path = target_path
+                self.mode = "trained"
+                print("[PolicyManager] Successfully loaded RLlib policy!")
+                return
+            except Exception as e:
+                print(f"[PolicyManager] Warning: Failed to load RLlib checkpoint ({e}). Falling back to heuristic.")
+
+        self.trained_module = None
+        self.native_mappo_actor = None
+        self.mode = "heuristic"
 
     def set_mode(self, mode: str) -> str:
         """Switch policy mode between 'trained', 'heuristic', 'random'."""
         mode = mode.lower()
         if mode == "trained":
-            if self.trained_module is None:
+            if self.native_mappo_actor is None and self.trained_module is None:
                 self._load_checkpoint(self.checkpoint_path)
-            if self.trained_module is not None:
+            if self.native_mappo_actor is not None or self.trained_module is not None:
                 self.mode = "trained"
             else:
                 self.mode = "heuristic"
@@ -112,18 +154,45 @@ class PolicyManager:
         if not agents:
             return {}
 
-        if self.mode == "trained" and self.trained_module is not None:
+        # 1. Native PyTorch MAPPO Inference
+        if self.mode == "trained" and self.native_mappo_actor is not None:
+            try:
+                expected_dim = self.native_mappo_actor.obs_dim
+                obs_list = []
+                for a in agents:
+                    obs = observations[a]
+                    if len(obs) < expected_dim:
+                        # Pad if needed (e.g. 26-dim obs on 42-dim model)
+                        padded = np.zeros(expected_dim, dtype=np.float32)
+                        padded[:len(obs)] = obs
+                        obs_list.append(padded)
+                    elif len(obs) > expected_dim:
+                        obs_list.append(obs[:expected_dim])
+                    else:
+                        obs_list.append(obs)
+
+                obs_tensor = torch.as_tensor(np.array(obs_list, dtype=np.float32), dtype=torch.float32)
+                with torch.no_grad():
+                    actions_tensor, _ = self.native_mappo_actor.get_action(obs_tensor, deterministic=True)
+                actions_np = actions_tensor.cpu().numpy()
+                clipped_actions = np.clip(actions_np, -1.0, 1.0)
+                return {agent: clipped_actions[i] for i, agent in enumerate(agents)}
+            except Exception as e:
+                print(f"[PolicyManager] Native MAPPO inference error ({e}), falling back to heuristic.")
+                return self._compute_heuristic_actions(env)
+
+        # 2. RLlib Module Inference
+        elif self.mode == "trained" and self.trained_module is not None:
             try:
                 obs_batch = np.array([observations[a] for a in agents], dtype=np.float32)
                 tensor_obs = torch.tensor(obs_batch, dtype=torch.float32)
                 with torch.no_grad():
                     out = self.trained_module.forward_inference({"obs": tensor_obs})
-                # action_dist_inputs has shape (batch_size, 6): [mean_0..2, log_std_0..2]
                 raw_actions = out["action_dist_inputs"][:, :3].cpu().numpy()
                 clipped_actions = np.clip(raw_actions, -1.0, 1.0)
                 return {agent: clipped_actions[i] for i, agent in enumerate(agents)}
             except Exception as e:
-                print(f"[PolicyManager] Inference error ({e}), using heuristic fallback.")
+                print(f"[PolicyManager] RLlib inference error ({e}), using heuristic fallback.")
                 return self._compute_heuristic_actions(env)
 
         elif self.mode == "heuristic":

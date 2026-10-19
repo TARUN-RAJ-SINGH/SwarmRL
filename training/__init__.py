@@ -14,6 +14,14 @@ from training.centralized_critic import (
 from training.rollout_buffer import MultiAgentRolloutBuffer
 from training.mappo_policy import MAPPOActor, MAPPOPolicy
 from training.mappo_trainer import MAPPOConfig, MAPPOTrainer
+from training.curriculum import CurriculumStage, CurriculumManager
+from training.tune_mappo import (
+    DEFAULT_PARAM_GRID,
+    sample_hyperparameters,
+    run_trial,
+    compute_pareto_frontier,
+)
+from training.scale_benchmark import benchmark_fleet_scale
 
 __all__ = [
     "GlobalStateBuilder",
@@ -30,4 +38,11 @@ __all__ = [
     "MAPPOPolicy",
     "MAPPOConfig",
     "MAPPOTrainer",
+    "CurriculumStage",
+    "CurriculumManager",
+    "DEFAULT_PARAM_GRID",
+    "sample_hyperparameters",
+    "run_trial",
+    "compute_pareto_frontier",
+    "benchmark_fleet_scale",
 ]
