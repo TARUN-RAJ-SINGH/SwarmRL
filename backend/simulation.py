@@ -54,6 +54,7 @@ class PolicyManager:
 
         # 1. First priority: native PyTorch MAPPO checkpoints (.pt files)
         pt_patterns = [
+            os.path.join(checkpoints_dir, "day19_mappo_best.pt"),
             os.path.join(checkpoints_dir, "day17_mappo", "day17_mappo_final.pt"),
             os.path.join(checkpoints_dir, "*", "*.pt"),
             os.path.join(checkpoints_dir, "*.pt"),

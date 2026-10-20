@@ -22,6 +22,14 @@ from training.tune_mappo import (
     compute_pareto_frontier,
 )
 from training.scale_benchmark import benchmark_fleet_scale
+from training.ablation_study import (
+    ABLATION_VARIANTS,
+    run_single_variant_training,
+    run_full_ablation_study,
+    plot_ablation_comparisons,
+    generate_ablation_markdown_report,
+)
+from training.train_long_horizon import train_long_horizon
 
 __all__ = [
     "GlobalStateBuilder",
@@ -45,4 +53,10 @@ __all__ = [
     "run_trial",
     "compute_pareto_frontier",
     "benchmark_fleet_scale",
+    "ABLATION_VARIANTS",
+    "run_single_variant_training",
+    "run_full_ablation_study",
+    "plot_ablation_comparisons",
+    "generate_ablation_markdown_report",
+    "train_long_horizon",
 ]

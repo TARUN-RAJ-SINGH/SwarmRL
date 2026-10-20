@@ -636,14 +636,44 @@ class MLPCentralizedCritic(nn.Module):
         if self.value_head.bias is not None:
             nn.init.constant_(self.value_head.bias, 0.0)
 
-    def forward(self, flat_state: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        agent_states: torch.Tensor,
+        env_state: Optional[torch.Tensor] = None,
+        agent_mask: Optional[torch.Tensor] = None,
+        return_individual: bool = False,
+    ) -> torch.Tensor:
         """
         Args:
-            flat_state: Tensor of shape (B, input_dim) or (input_dim,)
+            agent_states: Tensor of shape (B, N, 12), (N, 12), or flat (B, input_dim) / (input_dim,)
+            env_state: Optional Tensor of shape (B, 11) or (11,)
 
         Returns:
             Value scalar tensor of shape (B, 1) or (1,)
         """
+        if env_state is not None:
+            if agent_states.dim() == 2:
+                # unbatched (N, 12) and (11,)
+                ag_flat = agent_states.reshape(-1)
+                curr_flat = torch.cat([ag_flat, env_state.reshape(-1)], dim=-1)
+                if curr_flat.shape[0] < self.input_dim:
+                    flat_state = torch.zeros(self.input_dim, dtype=curr_flat.dtype, device=curr_flat.device)
+                    flat_state[:curr_flat.shape[0]] = curr_flat
+                else:
+                    flat_state = curr_flat[:self.input_dim]
+            else:
+                # batched (B, N, 12) and (B, 11)
+                B = agent_states.shape[0]
+                ag_flat = agent_states.reshape(B, -1)
+                curr_flat = torch.cat([ag_flat, env_state], dim=-1)
+                if curr_flat.shape[1] < self.input_dim:
+                    flat_state = torch.zeros((B, self.input_dim), dtype=curr_flat.dtype, device=curr_flat.device)
+                    flat_state[:, :curr_flat.shape[1]] = curr_flat
+                else:
+                    flat_state = curr_flat[:, :self.input_dim]
+        else:
+            flat_state = agent_states
+
         unbatched = False
         if flat_state.dim() == 1:
             flat_state = flat_state.unsqueeze(0)
