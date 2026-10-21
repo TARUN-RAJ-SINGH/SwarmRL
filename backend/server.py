@@ -313,6 +313,16 @@ async def simulation_websocket(websocket: WebSocket):
                     }))
                     await broadcast_frame(engine.latest_frame)
 
+            elif action in ("set_curriculum_stage", "set_stage"):
+                stage_id = cmd.get("stage_id") or cmd.get("stage")
+                if engine and stage_id is not None:
+                    new_stage = engine.set_curriculum_stage(int(stage_id))
+                    await websocket.send_text(json.dumps({
+                        "type": "config_ack",
+                        "curriculum": new_stage,
+                    }))
+                    await broadcast_frame(engine.latest_frame)
+
             elif action == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
 

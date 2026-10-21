@@ -19,6 +19,9 @@ import { DroneModel } from './DroneModel';
 import { CoverageHeatmap } from './CoverageHeatmap';
 import { CoverageVoxels } from './CoverageVoxels';
 import { SwarmCentroidMarker } from './SwarmCentroidMarker';
+import { FlightTrails } from './FlightTrails';
+import { CommunicationMesh } from './CommunicationMesh';
+import { DroneSensorCones } from './DroneSensorCones';
 
 /**
  * CameraController dynamically smoothly transitions between camera presets:
@@ -94,6 +97,7 @@ function CameraController({ cameraMode, selectedDrone, drones, worldConfig }) {
 function SceneContent({
   worldConfig,
   drones,
+  commEdges,
   sectors,
   heatmapGrid,
   newVoxels,
@@ -102,6 +106,9 @@ function SceneContent({
   selectedDrone,
   cameraMode,
   showLidar,
+  showTrails,
+  showCommMesh,
+  showSensors,
   showHeatmap,
   showVoxels,
   showCentroid,
@@ -153,6 +160,27 @@ function SceneContent({
         visible={showVoxels}
       />
 
+      {/* 3D Flight Trajectory Trails */}
+      <FlightTrails
+        drones={drones}
+        step={step}
+        visible={showTrails}
+      />
+
+      {/* Dynamic GNN Inter-Agent Communication Mesh */}
+      <CommunicationMesh
+        commEdges={commEdges}
+        drones={drones}
+        visible={showCommMesh}
+      />
+
+      {/* Drone 10m Perception Sensor Cones / Bounds */}
+      <DroneSensorCones
+        drones={drones}
+        selectedDrone={selectedDrone}
+        visible={showSensors}
+      />
+
       {/* Swarm Centroid & Spatial Dispersion Marker */}
       <SwarmCentroidMarker
         swarmAnalytics={swarmAnalytics}
@@ -184,6 +212,7 @@ function SceneContent({
 export function SimulationViewport({
   worldConfig,
   drones = [],
+  commEdges = [],
   sectors = {},
   heatmapGrid = [],
   newVoxels = [],
@@ -192,6 +221,9 @@ export function SimulationViewport({
   selectedDrone = null,
   cameraMode = 'orbit',
   showLidar = true,
+  showTrails = true,
+  showCommMesh = true,
+  showSensors = false,
   showHeatmap = true,
   showVoxels = true,
   showCentroid = true,
@@ -231,7 +263,11 @@ export function SimulationViewport({
           step={step}
           selectedDrone={selectedDrone}
           cameraMode={cameraMode}
+          commEdges={commEdges}
           showLidar={showLidar}
+          showTrails={showTrails}
+          showCommMesh={showCommMesh}
+          showSensors={showSensors}
           showHeatmap={showHeatmap}
           showVoxels={showVoxels}
           showCentroid={showCentroid}

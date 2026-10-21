@@ -29,6 +29,8 @@ from env.spaces import (
 
 ALL_LIDAR_DIRS = np.concatenate([LIDAR_HORIZONTAL_DIRS, LIDAR_VERTICAL_DIRS], axis=0)
 
+from training.curriculum import CurriculumManager
+
 
 class PolicyManager:
     """
@@ -316,8 +318,34 @@ class SimulationEngine:
         self.zone_b_mask = np.repeat(mask_b_2d[:, :, np.newaxis], gz, axis=2)
         self.zone_b_total = max(int(np.sum(self.zone_b_mask)), 1)
 
+        # Initialize curriculum manager
+        self.curriculum = CurriculumManager()
+        self.curriculum.apply_to_env(self.env)
+        self.max_steps = self.env.max_steps
+
         # Initialize environment state
         self.reset()
+
+    def set_curriculum_stage(self, stage_id: int) -> dict:
+        """Manually switch active curriculum stage (1, 2, or 3)."""
+        target_idx = max(0, min(int(stage_id) - 1, len(self.curriculum.stages) - 1))
+        self.curriculum.current_stage_idx = target_idx
+        self.curriculum.apply_to_env(self.env)
+        self.max_steps = self.env.max_steps
+        if self.latest_frame:
+            self.latest_frame["curriculum"] = {
+                "stage_id": self.curriculum.current_stage.stage_id,
+                "stage_name": self.curriculum.current_stage.name,
+                "target_coverage": round(self.curriculum.current_stage.target_coverage * 100, 1),
+                "description": self.curriculum.current_stage.description,
+            }
+            self.latest_frame["max_steps"] = self.max_steps
+        return {
+            "stage_id": self.curriculum.current_stage.stage_id,
+            "stage_name": self.curriculum.current_stage.name,
+            "target_coverage": round(self.curriculum.current_stage.target_coverage * 100, 1),
+            "description": self.curriculum.current_stage.description,
+        }
 
     def set_num_drones(self, num: int) -> int:
         """Dynamically scale fleet size (e.g. 10, 25, 50)."""
@@ -327,6 +355,7 @@ class SimulationEngine:
             was_running = (self.status == "running")
             self.pause()
             self.env = SwarmEnv(num_drones=self.num_drones)
+            self.curriculum.apply_to_env(self.env)
             self.reset()
             if was_running:
                 asyncio.create_task(self.start())
@@ -476,8 +505,9 @@ class SimulationEngine:
         heatmap_25x25 = cov_2d.reshape(25, 2, 25, 2).mean(axis=(1, 3))
         heatmap_grid = np.round(heatmap_25x25, 2).tolist()
 
-        # Swarm formation & dispersion analytics
+        # Swarm formation, dispersion & inter-drone communication analytics
         active_drones = [d for d in self.env.drones if d.alive]
+        comm_edges = []
         if active_drones:
             positions = np.array([d.position for d in active_drones])
             velocities = np.array([d.velocity for d in active_drones])
@@ -494,6 +524,17 @@ class SimulationEngine:
                 min_dist = float(np.min(pair_dists))
                 avg_dist = float(np.mean(pair_dists))
                 max_dist = float(np.max(pair_dists))
+
+                for idx in range(len(i_upper[0])):
+                    i = i_upper[0][idx]
+                    j = i_upper[1][idx]
+                    d = float(dists[i, j])
+                    if d <= COMM_RANGE:
+                        comm_edges.append({
+                            "source": int(active_drones[i].id),
+                            "target": int(active_drones[j].id),
+                            "distance": round(d, 2),
+                        })
             else:
                 min_dist = 0.0
                 avg_dist = 0.0
@@ -506,6 +547,10 @@ class SimulationEngine:
             avg_dist = 0.0
             max_dist = 0.0
 
+        max_possible_edges = (len(active_drones) * (len(active_drones) - 1)) // 2 if len(active_drones) > 1 else 0
+        network_density = round(len(comm_edges) / max_possible_edges, 3) if max_possible_edges > 0 else 0.0
+        avg_neighbors = round((2.0 * len(comm_edges)) / len(active_drones), 2) if active_drones else 0.0
+
         swarm_analytics = {
             "centroid": [round(float(c), 2) for c in centroid],
             "dispersion_radius": round(dispersion, 2),
@@ -513,6 +558,9 @@ class SimulationEngine:
             "avg_distance": round(avg_dist, 2),
             "max_distance": round(max_dist, 2),
             "avg_speed": round(avg_speed, 2),
+            "comm_links": len(comm_edges),
+            "avg_neighbors": avg_neighbors,
+            "network_density": network_density,
         }
 
         return {
@@ -528,6 +576,13 @@ class SimulationEngine:
             "policy_mode": self.policy_manager.mode,
             "fps": self.fps,
             "num_drones": self.num_drones,
+            "curriculum": {
+                "stage_id": self.curriculum.current_stage.stage_id,
+                "stage_name": self.curriculum.current_stage.name,
+                "target_coverage": round(self.curriculum.current_stage.target_coverage * 100, 1),
+                "description": self.curriculum.current_stage.description,
+            },
+            "comm_edges": comm_edges,
             "drones": drones_data,
             "sectors": sectors,
             "heatmap_grid": heatmap_grid,

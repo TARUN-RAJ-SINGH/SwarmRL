@@ -13,7 +13,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 // Colour palette per drone ID (10 distinct hues)
-const DRONE_COLORS = [
+export const DRONE_COLORS = [
   '#00f0ff', // cyan
   '#10b981', // emerald
   '#f59e0b', // amber

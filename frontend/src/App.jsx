@@ -16,10 +16,14 @@ export function App() {
     setPolicy,
     setFps,
     setNumDrones,
+    setCurriculumStage,
   } = useSimulation();
 
-  // Day 13 Camera & Layer States
+  // Day 20 Camera, Trails, Mesh & Layer States
   const [cameraMode, setCameraMode] = useState('orbit'); // 'orbit' | 'topDown' | 'chase' | 'elevation'
+  const [showTrails, setShowTrails] = useState(true);
+  const [showCommMesh, setShowCommMesh] = useState(true);
+  const [showSensors, setShowSensors] = useState(false);
   const [showLidar, setShowLidar] = useState(true);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [showVoxels, setShowVoxels] = useState(true);
@@ -27,6 +31,13 @@ export function App() {
   const [selectedDrone, setSelectedDrone] = useState(null);
 
   const drones = simState.drones || [];
+  const commEdges = simState.comm_edges || [];
+  const curriculum = simState.curriculum || {
+    stage_id: 1,
+    stage_name: 'Dispersion & Safety',
+    target_coverage: 15.0,
+    description: 'Cluster dispersal with collision avoidance',
+  };
   const coveragePercent = simState.coverage_pct || 0;
   const aliveDrones = drones.filter((d) => d.alive).length;
   const sectors = simState.sectors || {};
@@ -36,6 +47,9 @@ export function App() {
     min_distance: 0,
     avg_distance: 0,
     avg_speed: 0,
+    comm_links: 0,
+    avg_neighbors: 0,
+    network_density: 0,
   };
 
   const selectedDroneData = drones.find((d) => d.id === selectedDrone);
@@ -56,6 +70,17 @@ export function App() {
         </div>
 
         <div className="header-meta">
+          {/* Day 20: Curriculum Stage Badge */}
+          <div className="curriculum-badge">
+            <span className="curriculum-icon">🎯</span>
+            <div className="curriculum-content">
+              <span className="curriculum-stage-name">
+                STAGE {curriculum.stage_id}: {curriculum.stage_name.toUpperCase()}
+              </span>
+              <span className="curriculum-target">Target: {curriculum.target_coverage}% Cov</span>
+            </div>
+          </div>
+
           <div className={`status-pill ${connected ? 'connected' : 'disconnected'}`}>
             <span className="status-dot"></span>
             <span>{connected ? 'WS LIVE (8000)' : 'OFFLINE'}</span>
@@ -81,7 +106,7 @@ export function App() {
               style={{ width: `${Math.min(coveragePercent, 100)}%` }}
             ></div>
           </div>
-          <div className="metric-sub">Target: 85.0%</div>
+          <div className="metric-sub">Curriculum Goal: {curriculum.target_coverage}%</div>
         </div>
 
         <div className="metric-card">
@@ -102,6 +127,24 @@ export function App() {
           </div>
           <div className="metric-sub">
             {selectedDrone !== null ? `Drone #${selectedDrone} Locked` : 'Basecamp Fleet'}
+          </div>
+        </div>
+
+        {/* Day 20: GNN Communication Mesh Metric */}
+        <div className="metric-card">
+          <div className="metric-label">COMMUNICATION MESH</div>
+          <div className="metric-value">
+            <span className="accent-val">{swarmAnalytics.comm_links || commEdges.length}</span>
+            <span className="unit">Links</span>
+          </div>
+          <div className="progress-track">
+            <div
+              className="progress-fill mesh-fill"
+              style={{ width: `${Math.min(((swarmAnalytics.network_density || 0) * 100), 100)}%` }}
+            ></div>
+          </div>
+          <div className="metric-sub">
+            {((swarmAnalytics.network_density || 0) * 100).toFixed(0)}% Density • {swarmAnalytics.avg_neighbors?.toFixed(1) || '0.0'} Peers/Drone
           </div>
         </div>
 
@@ -169,14 +212,34 @@ export function App() {
         <div className="control-group">
           <label className="select-label">Policy:</label>
           <div className="segmented-control">
-            {['trained', 'heuristic', 'random'].map((mode) => (
+            {[
+              { id: 'trained', label: '⚡ MAPPO (Day 19)' },
+              { id: 'heuristic', label: '🛡️ Heuristic APF' },
+              { id: 'random', label: '🎲 Random' },
+            ].map((p) => (
               <button
-                key={mode}
-                className={`segment-btn ${simState.policy_mode === mode ? 'active' : ''}`}
-                onClick={() => setPolicy(mode)}
+                key={p.id}
+                className={`segment-btn ${simState.policy_mode === p.id ? 'active' : ''}`}
+                onClick={() => setPolicy(p.id)}
                 disabled={!connected}
               >
-                {mode === 'trained' ? 'RL MAPPO' : mode === 'heuristic' ? 'APF Heuristic' : 'Random'}
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Day 20: Curriculum Stage Selector */}
+          <label className="select-label">Curriculum:</label>
+          <div className="segmented-control">
+            {[1, 2, 3].map((sId) => (
+              <button
+                key={sId}
+                className={`segment-btn ${curriculum.stage_id === sId ? 'active' : ''}`}
+                onClick={() => setCurriculumStage && setCurriculumStage(sId)}
+                disabled={!connected}
+                title={`Switch to Curriculum Stage ${sId}`}
+              >
+                Stage {sId}
               </button>
             ))}
           </div>
@@ -211,7 +274,29 @@ export function App() {
           </div>
         </div>
 
+        {/* Day 20: 3D Visualization Layer Toggles */}
         <div className="control-group layer-toggles">
+          <button
+            className={`btn-control btn-toggle ${showTrails ? 'btn-toggle-on' : ''}`}
+            onClick={() => setShowTrails(!showTrails)}
+            title="Toggle 3D drone trajectory trails"
+          >
+            {showTrails ? '◉ Trails' : '○ Trails'}
+          </button>
+          <button
+            className={`btn-control btn-toggle ${showCommMesh ? 'btn-toggle-on' : ''}`}
+            onClick={() => setShowCommMesh(!showCommMesh)}
+            title="Toggle dynamic GNN inter-agent communication mesh"
+          >
+            {showCommMesh ? '◉ Comm Mesh' : '○ Comm Mesh'}
+          </button>
+          <button
+            className={`btn-control btn-toggle ${showSensors ? 'btn-toggle-on' : ''}`}
+            onClick={() => setShowSensors(!showSensors)}
+            title="Toggle 10m perception bounds & sensor cones"
+          >
+            {showSensors ? '◉ Sensors' : '○ Sensors'}
+          </button>
           <button
             className={`btn-control btn-toggle ${showLidar ? 'btn-toggle-on' : ''}`}
             onClick={() => setShowLidar(!showLidar)}
@@ -251,7 +336,7 @@ export function App() {
             <div className="header-left">
               <span>3D TACTICAL DISASTER ZONE (100m × 100m × 50m)</span>
               <span className="panel-tag">
-                {drones.length} DRONES • {simState.policy_mode.toUpperCase()}
+                {drones.length} DRONES • {simState.policy_mode.toUpperCase()} • STAGE {curriculum.stage_id}
               </span>
             </div>
 
@@ -282,6 +367,7 @@ export function App() {
             <SimulationViewport
               worldConfig={worldConfig}
               drones={drones}
+              commEdges={commEdges}
               sectors={sectors}
               heatmapGrid={simState.heatmap_grid}
               newVoxels={simState.new_voxels}
@@ -290,6 +376,9 @@ export function App() {
               selectedDrone={selectedDrone}
               cameraMode={cameraMode}
               showLidar={showLidar}
+              showTrails={showTrails}
+              showCommMesh={showCommMesh}
+              showSensors={showSensors}
               showHeatmap={showHeatmap}
               showVoxels={showVoxels}
               showCentroid={showCentroid}
@@ -303,6 +392,12 @@ export function App() {
               </div>
               <div className="hud-item">
                 <span className="hud-label">COV</span> {coveragePercent.toFixed(1)}%
+              </div>
+              <div className="hud-item">
+                <span className="hud-label">STAGE</span> S{curriculum.stage_id} ({curriculum.target_coverage}%)
+              </div>
+              <div className="hud-item">
+                <span className="hud-label">COMM</span> {commEdges.length} LINKS
               </div>
               <div className="hud-item">
                 <span className="hud-label">STEP</span> {simState.step}/{simState.max_steps}
@@ -351,9 +446,9 @@ export function App() {
             </div>
           </div>
 
-          {/* Day 13: Swarm Formation & Spatial Analytics */}
+          {/* Day 20: Swarm Formation & Network Topology Analytics */}
           <div className="analytics-card">
-            <div className="panel-subhead">SWARM FORMATION & TRAJECTORY</div>
+            <div className="panel-subhead">SWARM FORMATION & GNN TOPOLOGY</div>
             <div className="analytics-grid">
               <div className="analytic-stat">
                 <div className="stat-label">DISPERSION RADIUS</div>
@@ -373,6 +468,26 @@ export function App() {
                   <span className="unit">m</span>
                 </div>
                 <div className="stat-desc">Safety Clearance</div>
+              </div>
+
+              <div className="analytic-stat">
+                <div className="stat-label">COMM MESH LINKS</div>
+                <div className="stat-val">
+                  <span className="accent-val">{swarmAnalytics.comm_links || commEdges.length}</span>
+                  <span className="unit">links</span>
+                </div>
+                <div className="stat-desc">
+                  {((swarmAnalytics.network_density || 0) * 100).toFixed(0)}% Network Density
+                </div>
+              </div>
+
+              <div className="analytic-stat">
+                <div className="stat-label">AVG PEERS / DRONE</div>
+                <div className="stat-val">
+                  {swarmAnalytics.avg_neighbors?.toFixed(1) || '0.0'}
+                  <span className="unit">nodes</span>
+                </div>
+                <div className="stat-desc">20m Comm Radius</div>
               </div>
 
               <div className="analytic-stat">

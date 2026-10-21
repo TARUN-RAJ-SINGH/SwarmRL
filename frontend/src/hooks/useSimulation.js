@@ -76,6 +76,7 @@ export function useSimulation() {
         policy_mode: data.policy_mode ?? prev.policy_mode,
         fps: data.fps ?? prev.fps,
         num_drones: data.num_drones ?? prev.num_drones,
+        curriculum: data.curriculum ?? prev.curriculum,
       }));
     });
 
@@ -97,6 +98,7 @@ export function useSimulation() {
   const setPolicy = useCallback((policy) => simulationSocket.setPolicy(policy), []);
   const setFps = useCallback((fps) => simulationSocket.setFps(fps), []);
   const setNumDrones = useCallback((count) => simulationSocket.setNumDrones(count), []);
+  const setCurriculumStage = useCallback((stageId) => simulationSocket.setCurriculumStage(stageId), []);
 
   return {
     connected,
@@ -110,6 +112,7 @@ export function useSimulation() {
     setPolicy,
     setFps,
     setNumDrones,
+    setCurriculumStage,
   };
 }
 

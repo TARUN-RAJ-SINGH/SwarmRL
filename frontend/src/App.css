@@ -176,6 +176,43 @@ body {
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* Day 20: Curriculum Stage Badge */
+.curriculum-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  font-family: var(--font-mono);
+}
+
+.curriculum-icon {
+  font-size: 0.9rem;
+}
+
+.curriculum-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.curriculum-stage-name {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  letter-spacing: 0.04em;
+}
+
+.curriculum-target {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.mesh-fill {
+  background: linear-gradient(90deg, #10b981, #00f0ff);
+}
+
 .status-running {
   background: rgba(16, 185, 129, 0.15);
   color: var(--accent-emerald);

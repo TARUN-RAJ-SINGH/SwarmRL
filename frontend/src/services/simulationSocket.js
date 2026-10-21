@@ -131,6 +131,10 @@ export class SimulationSocket {
   setNumDrones(count) {
     return this.send('set_num_drones', { count });
   }
+
+  setCurriculumStage(stageId) {
+    return this.send('set_curriculum_stage', { stage_id: stageId });
+  }
 }
 
 // Global singleton instance
